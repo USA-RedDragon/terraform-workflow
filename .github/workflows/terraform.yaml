@@ -76,6 +76,13 @@ on:
       aws-role-session-name:
         required: false
         description: 'The AWS role session name'
+      secrets:
+        required: false
+        description: >-
+          Newline-delimited NAME: VALUE pairs exported into the environment of
+          every Terraform step, e.g. "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}".
+          Provider-agnostic on purpose: a new provider adds a line here rather
+          than a new input to this workflow. Values are masked before export.
 
 env:
   # Disable Terraform telemetry
@@ -150,6 +157,31 @@ jobs:
           role-to-assume: ${{ secrets.aws-role-to-assume }}
           role-session-name: ${{ secrets.aws-role-session-name }}
           aws-region: ${{ inputs.aws-region }}
+
+      - name: Export caller-supplied secrets
+        if: secrets.secrets != ''
+        env:
+          EXTRA_SECRETS: ${{ secrets.secrets }}
+        run: |
+          set -euo pipefail
+          # Split on the FIRST colon only: a value may contain colons (an ARN, a
+          # URL, a JSON blob). Blank lines and # comments are skipped.
+          while IFS= read -r line; do
+            [ -z "${line// }" ] && continue
+            case "$line" in \#*) continue ;; esac
+            name="${line%%:*}"
+            value="${line#*:}"
+            name="$(printf '%s' "$name" | tr -d '[:space:]')"
+            value="${value# }"
+            if [ -z "$name" ] || [ "$name" = "$line" ]; then
+              echo "::error::secrets line is not NAME: VALUE -- '$line'" >&2
+              exit 1
+            fi
+            # Mask BEFORE writing: a value in $GITHUB_ENV without this can
+            # surface in any later step's log.
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done <<< "$EXTRA_SECRETS"
 
       - name: Terraform Init
         id: init
@@ -364,6 +396,31 @@ jobs:
           role-to-assume: ${{ secrets.aws-role-to-assume }}
           role-session-name: ${{ secrets.aws-role-session-name }}
           aws-region: ${{ inputs.aws-region }}
+
+      - name: Export caller-supplied secrets
+        if: secrets.secrets != ''
+        env:
+          EXTRA_SECRETS: ${{ secrets.secrets }}
+        run: |
+          set -euo pipefail
+          # Split on the FIRST colon only: a value may contain colons (an ARN, a
+          # URL, a JSON blob). Blank lines and # comments are skipped.
+          while IFS= read -r line; do
+            [ -z "${line// }" ] && continue
+            case "$line" in \#*) continue ;; esac
+            name="${line%%:*}"
+            value="${line#*:}"
+            name="$(printf '%s' "$name" | tr -d '[:space:]')"
+            value="${value# }"
+            if [ -z "$name" ] || [ "$name" = "$line" ]; then
+              echo "::error::secrets line is not NAME: VALUE -- '$line'" >&2
+              exit 1
+            fi
+            # Mask BEFORE writing: a value in $GITHUB_ENV without this can
+            # surface in any later step's log.
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done <<< "$EXTRA_SECRETS"
 
       - name: Terraform Init
         id: init
