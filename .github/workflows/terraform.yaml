@@ -80,7 +80,8 @@ on:
         required: false
         description: >-
           Newline-delimited NAME: VALUE pairs exported into the environment of
-          every Terraform step, e.g. "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}".
+          every Terraform step. Each line is NAME, a colon, then the value --
+          the caller interpolates its own secret into the value.
           Provider-agnostic on purpose: a new provider adds a line here rather
           than a new input to this workflow. Values are masked before export.
 
@@ -159,11 +160,18 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
 
       - name: Export caller-supplied secrets
-        if: secrets.secrets != ''
         env:
           EXTRA_SECRETS: ${{ secrets.secrets }}
         run: |
           set -euo pipefail
+          # Guarded here, not in `if:` -- the `secrets` context is NOT available
+          # in a step-level condition (github/needs/strategy/matrix/job/runner/
+          # env/vars/steps/inputs only), and using it there is a workflow file
+          # validation error rather than a runtime one.
+          if [ -z "${EXTRA_SECRETS//[[:space:]]/}" ]; then
+            echo "no caller-supplied secrets"
+            exit 0
+          fi
           # Split on the FIRST colon only: a value may contain colons (an ARN, a
           # URL, a JSON blob). Blank lines and # comments are skipped.
           while IFS= read -r line; do
@@ -398,11 +406,18 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
 
       - name: Export caller-supplied secrets
-        if: secrets.secrets != ''
         env:
           EXTRA_SECRETS: ${{ secrets.secrets }}
         run: |
           set -euo pipefail
+          # Guarded here, not in `if:` -- the `secrets` context is NOT available
+          # in a step-level condition (github/needs/strategy/matrix/job/runner/
+          # env/vars/steps/inputs only), and using it there is a workflow file
+          # validation error rather than a runtime one.
+          if [ -z "${EXTRA_SECRETS//[[:space:]]/}" ]; then
+            echo "no caller-supplied secrets"
+            exit 0
+          fi
           # Split on the FIRST colon only: a value may contain colons (an ARN, a
           # URL, a JSON blob). Blank lines and # comments are skipped.
           while IFS= read -r line; do
