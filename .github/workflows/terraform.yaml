@@ -140,7 +140,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: inputs.gcp-auth
-        uses: google-github-actions/auth@v2.1.3
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         id: gcp-auth
         with:
           workload_identity_provider: ${{ secrets.gcp-workload-identity-provider }}
@@ -386,7 +386,7 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: inputs.gcp-auth
-        uses: google-github-actions/auth@v2.1.3
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         id: gcp-auth
         with:
           workload_identity_provider: ${{ secrets.gcp-workload-identity-provider }}
