@@ -121,7 +121,7 @@ jobs:
 
       - name: Generate GitHub App Token
         if: inputs.github-app-auth
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         id: app-token
         with:
           app-id: ${{ secrets.app-id }}
@@ -367,7 +367,7 @@ jobs:
 
       - name: Generate GitHub App Token
         if: inputs.github-app-auth
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
         id: app-token
         with:
           app-id: ${{ secrets.app-id }}
