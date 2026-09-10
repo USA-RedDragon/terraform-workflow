@@ -204,23 +204,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         if: inputs.plan || inputs.apply
-        run: |
-          set +e
-          terraform plan -no-color -out=plan.out -detailed-exitcode
-          EXITCODE=$?
-          if [[ $EXITCODE -eq 2 ]]; then
-            echo "Plan succeeded with a diff"
-            echo "diff=true" >> $GITHUB_OUTPUT
-            exit 0
-          elif [[ $EXITCODE -eq 0 ]]; then
-            echo "Plan succeeded with no diff"
-            echo "diff=false" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "Plan failed"
-            echo "diff=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
+        run: terraform plan -no-color -out=plan.out -detailed-exitcode
         continue-on-error: true
 
       - name: Terraform Apply
@@ -290,7 +274,7 @@ jobs:
             }
 
             if ("${{ inputs.plan }}" == "true") {
-              if ("${{ steps.plan.outputs.diff }}" == "true") {
+              if ("${{ steps.plan.outputs.exitcode }}" == "2") {
                 comment += `\n#### 📜 Terraform Plan Has Changes\n`;
               } else if ("${{ steps.plan.outcome }}" == "success") {
                 comment += `\n#### ✅ Terraform Plan Has No Changes\n`;
@@ -450,23 +434,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         if: inputs.plan || inputs.apply
-        run: |
-          set +e
-          terraform plan -no-color -out=plan.out -detailed-exitcode
-          EXITCODE=$?
-          if [[ $EXITCODE -eq 2 ]]; then
-            echo "Plan succeeded with a diff"
-            echo "diff=true" >> $GITHUB_OUTPUT
-            exit 0
-          elif [[ $EXITCODE -eq 0 ]]; then
-            echo "Plan succeeded with no diff"
-            echo "diff=false" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "Plan failed"
-            echo "diff=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
+        run: terraform plan -no-color -out=plan.out -detailed-exitcode
         continue-on-error: true
 
       - name: Terraform Apply
@@ -536,7 +504,7 @@ jobs:
             }
 
             if ("${{ inputs.plan }}" == "true") {
-              if ("${{ steps.plan.outputs.diff }}" == "true") {
+              if ("${{ steps.plan.outputs.exitcode }}" == "2") {
                 comment += `\n#### 📜 Terraform Plan Has Changes\n`;
               } else if ("${{ steps.plan.outcome }}" == "success") {
                 comment += `\n#### ✅ Terraform Plan Has No Changes\n`;
