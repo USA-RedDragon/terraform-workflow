@@ -57,6 +57,11 @@ on:
         type: string
         required: false
         description: 'The AWS region'
+      drift-detection:
+        type: boolean
+        required: false
+        default: false
+        description: 'Whether to detect drift instead of planning or applying. Opens, updates, or closes a drift-detection issue per module and needs the issues: write permission'
     secrets:
       app-id:
         required: false
@@ -95,13 +100,33 @@ jobs:
     runs-on: ubuntu-22.04
     if: inputs.working-directory != '.'
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
+      matrix: ${{ inputs.drift-detection && steps.matrix-drift.outputs.matrix || steps.matrix.outputs.matrix }}
     steps:
       - name: Generate matrix
         id: matrix
+        if: '!inputs.drift-detection'
         uses: hellofresh/action-changed-files@f6db62a551af02bb4bbc88ce6536bf40aa537e8f # v3.0.1
         with:
             pattern: ${{ inputs.working-directory }}/(?P<match>[^/]+)
+
+      - name: Checkout
+        if: inputs.drift-detection
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Generate drift detection matrix
+        id: matrix-drift
+        if: inputs.drift-detection
+        env:
+          WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        run: |
+          set -euo pipefail
+          for dir in "$WORKING_DIRECTORY"/*/; do
+            if compgen -G "${dir}*.tf" > /dev/null; then
+              basename "$dir"
+            fi
+          done | jq -Rnc '{include: [inputs | {match: .}]}' > matrix.json
+          cat matrix.json
+          echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
 
   terraform:
     name: Terraform
@@ -198,14 +223,75 @@ jobs:
 
       - name: Terraform Validate
         id: validate
+        if: '!inputs.drift-detection'
         run: terraform validate -no-color
         continue-on-error: true
 
       - name: Terraform Plan
         id: plan
-        if: inputs.plan || inputs.apply
+        if: (inputs.plan || inputs.apply) && !inputs.drift-detection
         run: terraform plan -no-color -out=plan.out -detailed-exitcode
         continue-on-error: true
+
+      - name: Terraform Drift Detection
+        id: drift
+        if: inputs.drift-detection
+        run: terraform plan -no-color -lock=false -detailed-exitcode
+        continue-on-error: true
+
+      - name: Find drift issue
+        id: find-issue
+        if: inputs.drift-detection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: Drift Detection
+        run: |
+          set -euo pipefail
+          number="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=drift-detection&per_page=100" \
+            | jq -rs --arg title "$TITLE" 'add | map(select(.pull_request == null and .title == $title)) | .[0].number // empty')"
+          echo "issue_number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Write drift issue body
+        if: inputs.drift-detection && (steps.drift.outputs.exitcode == '2' || steps.drift.outcome == 'failure')
+        env:
+          EXITCODE: ${{ steps.drift.outputs.exitcode }}
+          PLAN_OUT: ${{ steps.drift.outputs.stdout }}
+          PLAN_ERR: ${{ steps.drift.outputs.stderr }}
+          TARGET: the root module
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$EXITCODE" = "2" ]; then
+            heading="Drift Detected"
+            summary="Terraform found drift in $TARGET. Review the plan below and apply or reconcile it."
+            output="$PLAN_OUT"
+            echo "::warning::Drift detected in $TARGET"
+          else
+            heading="Drift Detection Error"
+            summary="Terraform failed to plan $TARGET during drift detection. Review the error below."
+            output="$PLAN_ERR"
+          fi
+          {
+            printf '## %s\n\n%s\n\nRun: %s\n\n```hcl\n' "$heading" "$summary" "$RUN_URL"
+            printf '%s\n' "${output:0:60000}"
+            printf '```\n'
+          } > "$RUNNER_TEMP/drift-issue.md"
+
+      - name: Open or update drift issue
+        if: inputs.drift-detection && (steps.drift.outputs.exitcode == '2' || steps.drift.outcome == 'failure')
+        uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
+        with:
+          title: Drift Detection
+          content-filepath: ${{ runner.temp }}/drift-issue.md
+          labels: drift-detection
+          issue-number: ${{ steps.find-issue.outputs.issue_number }}
+
+      - name: Close drift issue
+        if: inputs.drift-detection && steps.drift.outputs.exitcode == '0' && steps.find-issue.outputs.issue_number != ''
+        uses: peter-evans/close-issue@05dff7ca07116e5707cfb3a3cd4af7bb5e43524c # v3.0.2
+        with:
+          issue-number: ${{ steps.find-issue.outputs.issue_number }}
+          comment: The drift in the root module has been resolved.
 
       - name: Terraform Apply
         id: apply
@@ -322,7 +408,7 @@ jobs:
           body: ${{ steps.github-script.outputs.result }}
 
       - name: Error if failed
-        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.init.outcome == 'failure' || steps.plan.outcome == 'failure' || steps.apply.outcome == 'failure' || steps.destroy.outcome == 'failure'
+        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.init.outcome == 'failure' || steps.plan.outcome == 'failure' || steps.drift.outcome == 'failure' || steps.apply.outcome == 'failure' || steps.destroy.outcome == 'failure'
         run: exit 1
 
   terraform-matrix:
@@ -428,14 +514,75 @@ jobs:
 
       - name: Terraform Validate
         id: validate
+        if: '!inputs.drift-detection'
         run: terraform validate -no-color
         continue-on-error: true
 
       - name: Terraform Plan
         id: plan
-        if: inputs.plan || inputs.apply
+        if: (inputs.plan || inputs.apply) && !inputs.drift-detection
         run: terraform plan -no-color -out=plan.out -detailed-exitcode
         continue-on-error: true
+
+      - name: Terraform Drift Detection
+        id: drift
+        if: inputs.drift-detection
+        run: terraform plan -no-color -lock=false -detailed-exitcode
+        continue-on-error: true
+
+      - name: Find drift issue
+        id: find-issue
+        if: inputs.drift-detection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'Drift Detection | `${{ matrix.match }}`'
+        run: |
+          set -euo pipefail
+          number="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=drift-detection&per_page=100" \
+            | jq -rs --arg title "$TITLE" 'add | map(select(.pull_request == null and .title == $title)) | .[0].number // empty')"
+          echo "issue_number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Write drift issue body
+        if: inputs.drift-detection && (steps.drift.outputs.exitcode == '2' || steps.drift.outcome == 'failure')
+        env:
+          EXITCODE: ${{ steps.drift.outputs.exitcode }}
+          PLAN_OUT: ${{ steps.drift.outputs.stdout }}
+          PLAN_ERR: ${{ steps.drift.outputs.stderr }}
+          TARGET: '`${{ matrix.match }}`'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$EXITCODE" = "2" ]; then
+            heading="Drift Detected"
+            summary="Terraform found drift in $TARGET. Review the plan below and apply or reconcile it."
+            output="$PLAN_OUT"
+            echo "::warning::Drift detected in $TARGET"
+          else
+            heading="Drift Detection Error"
+            summary="Terraform failed to plan $TARGET during drift detection. Review the error below."
+            output="$PLAN_ERR"
+          fi
+          {
+            printf '## %s\n\n%s\n\nRun: %s\n\n```hcl\n' "$heading" "$summary" "$RUN_URL"
+            printf '%s\n' "${output:0:60000}"
+            printf '```\n'
+          } > "$RUNNER_TEMP/drift-issue.md"
+
+      - name: Open or update drift issue
+        if: inputs.drift-detection && (steps.drift.outputs.exitcode == '2' || steps.drift.outcome == 'failure')
+        uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
+        with:
+          title: 'Drift Detection | `${{ matrix.match }}`'
+          content-filepath: ${{ runner.temp }}/drift-issue.md
+          labels: drift-detection
+          issue-number: ${{ steps.find-issue.outputs.issue_number }}
+
+      - name: Close drift issue
+        if: inputs.drift-detection && steps.drift.outputs.exitcode == '0' && steps.find-issue.outputs.issue_number != ''
+        uses: peter-evans/close-issue@05dff7ca07116e5707cfb3a3cd4af7bb5e43524c # v3.0.2
+        with:
+          issue-number: ${{ steps.find-issue.outputs.issue_number }}
+          comment: 'The drift in `${{ matrix.match }}` has been resolved.'
 
       - name: Terraform Apply
         id: apply
@@ -552,7 +699,7 @@ jobs:
           body: ${{ steps.github-script.outputs.result }}
 
       - name: Error if failed
-        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.init.outcome == 'failure' || steps.plan.outcome == 'failure' || steps.apply.outcome == 'failure' || steps.destroy.outcome == 'failure'
+        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.init.outcome == 'failure' || steps.plan.outcome == 'failure' || steps.drift.outcome == 'failure' || steps.apply.outcome == 'failure' || steps.destroy.outcome == 'failure'
         run: exit 1
 
   # This adds an extra status check representing if all of the matrix jobs passed

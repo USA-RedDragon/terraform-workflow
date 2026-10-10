@@ -41,3 +41,28 @@ jobs:
 ### GitHub App auth scoping
 
 When `github-app-auth` is enabled, the generated token's owner defaults to the owner of the calling repository. Use `github-app-owner` to override it, and `github-app-repositories` (comma or newline-separated) to grant access to specific repositories — for example a shared Terraform modules repo. If both are unset, the token is scoped to the calling repository only.
+
+### Drift detection
+
+Set `drift-detection: true` to run `terraform plan -lock=false -detailed-exitcode` against every module instead of a plan or apply. When `working-directory` is not `.`, the workflow checks every subdirectory that contains `.tf` files, not only the changed ones. For each module, it opens or updates an issue labeled `drift-detection` when the plan has changes or fails, and closes the open issue when the module is clean again. The job fails only when the plan fails.
+
+```yaml
+name: Terraform Drift Detection
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  drift:
+    name: Terraform Drift Detection
+    uses: USA-RedDragon/terraform-workflow/.github/workflows/terraform.yaml@v1.1.0
+    permissions:
+      id-token: write # Required for cloud auth
+      contents: read  # Required for actions/checkout
+      issues: write   # Required for drift issues
+    with:
+      working-directory: infra
+      drift-detection: true
+```
