@@ -230,7 +230,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         if: (inputs.plan || inputs.apply) && !inputs.drift-detection
-        run: terraform plan -no-color -out=plan.out -detailed-exitcode
+        run: terraform plan -no-color -lock=${{ !inputs.apply }} -out=plan.out -detailed-exitcode
         continue-on-error: true
 
       - name: Terraform Drift Detection
@@ -521,7 +521,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         if: (inputs.plan || inputs.apply) && !inputs.drift-detection
-        run: terraform plan -no-color -out=plan.out -detailed-exitcode
+        run: terraform plan -no-color -lock=${{ !inputs.apply }} -out=plan.out -detailed-exitcode
         continue-on-error: true
 
       - name: Terraform Drift Detection
